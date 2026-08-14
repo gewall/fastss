@@ -18,6 +18,16 @@ type Annotator struct {
 	h   int
 }
 
+// BoxOptions configures dimensions, padding, radius, color, and stroke for a box
+type BoxOptions struct {
+	Color       string
+	StrokeWidth float64
+	Padding     float64
+	Radius      float64
+	Width       float64 // If > 0, overrides or sets fixed width centered on target
+	Height      float64 // If > 0, overrides or sets fixed height centered on target
+}
+
 // NewAnnotator creates a new annotator initialized with the given image
 func NewAnnotator(img image.Image) *Annotator {
 	bounds := img.Bounds()
@@ -84,33 +94,56 @@ func ParseColor(name string, defaultAlpha float64) color.RGBA {
 	return color.RGBA{R: 235, G: 35, B: 35, A: a}
 }
 
-// DrawBox draws a prominent bounding box with optional rounded corners around a rectangle
-func (a *Annotator) DrawBox(rect image.Rectangle, colName string, strokeWidth float64, padding float64, radius float64) {
-	col := ParseColor(colName, 1.0)
+// DrawBoxWithOptions draws a custom styled bounding box with specific width, height, padding, and radius
+func (a *Annotator) DrawBoxWithOptions(rect image.Rectangle, opt BoxOptions) {
+	col := ParseColor(opt.Color, 1.0)
+	strokeWidth := opt.StrokeWidth
 	if strokeWidth <= 0 {
 		strokeWidth = 4.0
 	}
+	padding := opt.Padding
 	if padding <= 0 {
-		padding = 4.0
+		padding = 6.0
 	}
 
-	x := float64(rect.Min.X) - padding
-	y := float64(rect.Min.Y) - padding
 	w := float64(rect.Dx()) + (padding * 2)
 	h := float64(rect.Dy()) + (padding * 2)
 
-	// Keep within bounds
+	centerX := float64(rect.Min.X) + float64(rect.Dx())/2
+	centerY := float64(rect.Min.Y) + float64(rect.Dy())/2
+
+	// If custom Width/Height are set, use them centered around the target center
+	if opt.Width > 0 {
+		w = opt.Width
+	}
+	if opt.Height > 0 {
+		h = opt.Height
+	}
+
+	x := centerX - w/2
+	y := centerY - h/2
+
+	// Keep within image bounds
 	if x < 0 {
-		w += x
 		x = 0
 	}
 	if y < 0 {
-		h += y
 		y = 0
+	}
+	if x+w > float64(a.w) {
+		w = float64(a.w) - x
+	}
+	if y+h > float64(a.h) {
+		h = float64(a.h) - y
 	}
 
 	a.dc.SetRGBA255(int(col.R), int(col.G), int(col.B), int(col.A))
 	a.dc.SetLineWidth(strokeWidth)
+
+	radius := opt.Radius
+	if radius < 0 {
+		radius = 0
+	}
 
 	if radius > 0 {
 		a.dc.DrawRoundedRectangle(x, y, w, h, radius)
@@ -118,6 +151,16 @@ func (a *Annotator) DrawBox(rect image.Rectangle, colName string, strokeWidth fl
 		a.dc.DrawRectangle(x, y, w, h)
 	}
 	a.dc.Stroke()
+}
+
+// DrawBox draws a bounding box around a rectangle
+func (a *Annotator) DrawBox(rect image.Rectangle, colName string, strokeWidth float64, padding float64, radius float64) {
+	a.DrawBoxWithOptions(rect, BoxOptions{
+		Color:       colName,
+		StrokeWidth: strokeWidth,
+		Padding:     padding,
+		Radius:      radius,
+	})
 }
 
 // DrawArrow draws an arrow pointing towards the target point from a given direction
@@ -214,11 +257,9 @@ func (a *Annotator) DrawBlur(rect image.Rectangle, blockSize int) {
 		blockSize = 10
 	}
 
-	// Read pixels from current context image
 	currentImg := a.dc.Image()
 	rgbaImg, ok := currentImg.(*image.RGBA)
 	if !ok {
-		// Fallback
 		return
 	}
 
@@ -258,7 +299,6 @@ func (a *Annotator) DrawBlur(rect image.Rectangle, blockSize int) {
 		}
 	}
 
-	// Redraw into context
 	a.dc.DrawImage(rgbaImg, 0, 0)
 }
 
@@ -303,4 +343,71 @@ func (a *Annotator) DrawBadge(pt image.Point, text string, bgColName string, tex
 // Result returns the finalized image
 func (a *Annotator) Result() image.Image {
 	return a.dc.Image()
+}
+
+// ParseBoxInlineOptions parses inline options from target string (e.g. "Submit|200x50" or "Submit|w=200,h=50,pad=10,r=8,color=blue")
+func ParseBoxInlineOptions(raw string, baseOpt BoxOptions) (string, BoxOptions) {
+	opt := baseOpt
+	parts := strings.Split(raw, "|")
+	if len(parts) < 2 {
+		return raw, opt
+	}
+
+	cleanTarget := strings.TrimSpace(parts[0])
+	optStr := strings.TrimSpace(parts[1])
+
+	// Check format "200x50"
+	if strings.Contains(optStr, "x") && !strings.Contains(optStr, "=") && !strings.Contains(optStr, ";") {
+		dims := strings.Split(optStr, "x")
+		if len(dims) == 2 {
+			if w, err := strconv.ParseFloat(strings.TrimSpace(dims[0]), 64); err == nil {
+				opt.Width = w
+			}
+			if h, err := strconv.ParseFloat(strings.TrimSpace(dims[1]), 64); err == nil {
+				opt.Height = h
+			}
+		}
+		return cleanTarget, opt
+	}
+
+	// Normalize delimiters: replace semicolons and spaces with commas
+	optStr = strings.ReplaceAll(optStr, ";", ",")
+	tokens := strings.FieldsFunc(optStr, func(r rune) bool {
+		return r == ',' || r == ' ' || r == ';'
+	})
+	for _, tok := range tokens {
+		kv := strings.SplitN(strings.TrimSpace(tok), "=", 2)
+		if len(kv) != 2 {
+			continue
+		}
+		k := strings.ToLower(strings.TrimSpace(kv[0]))
+		v := strings.TrimSpace(kv[1])
+
+		switch k {
+		case "w", "width":
+			if val, err := strconv.ParseFloat(v, 64); err == nil {
+				opt.Width = val
+			}
+		case "h", "height":
+			if val, err := strconv.ParseFloat(v, 64); err == nil {
+				opt.Height = val
+			}
+		case "p", "pad", "padding":
+			if val, err := strconv.ParseFloat(v, 64); err == nil {
+				opt.Padding = val
+			}
+		case "r", "radius":
+			if val, err := strconv.ParseFloat(v, 64); err == nil {
+				opt.Radius = val
+			}
+		case "c", "color":
+			opt.Color = v
+		case "s", "stroke":
+			if val, err := strconv.ParseFloat(v, 64); err == nil {
+				opt.StrokeWidth = val
+			}
+		}
+	}
+
+	return cleanTarget, opt
 }

@@ -32,6 +32,10 @@ var (
 	ocrDump       bool
 	markAll       bool
 	globalNth     int
+	boxWidth      float64
+	boxHeight     float64
+	boxPadding    float64
+	boxRadius     float64
 )
 
 var rootCmd = &cobra.Command{
@@ -45,6 +49,12 @@ Examples:
   # Capture full screen and draw red box on first 'Login':
   fastss --box "Login"
 
+  # Custom Box Size (Width, Height, Padding, Radius):
+  fastss --box "Login" --box-width 200 --box-height 60
+  fastss --box "Submit|200x50"
+  fastss --box "Save|w=180,h=50,pad=10,radius=8"
+  fastss --box "Delete" --padding 12 --radius 8
+
   # Target specific occurrence (1st, 2nd, last, all):
   fastss --box "Submit[1]"
   fastss --box "Submit[2]"
@@ -54,10 +64,6 @@ Examples:
   # Target text near / below a specific context anchor:
   fastss --box "Edit near Profile"
   fastss --arrow "Save below Settings"
-
-  # Target text in a specific area:
-  fastss --box "top-right:Save"
-  fastss --box "bottom:Submit"
 
   # Capture a specific window:
   fastss -w "Chrome" --arrow "Submit" --color red
@@ -74,7 +80,7 @@ func Execute() {
 
 func init() {
 	rootCmd.Flags().StringVarP(&windowQuery, "window", "w", "fullscreen", "Window title to capture ('fullscreen', 'active', or partial title like 'Chrome')")
-	rootCmd.Flags().StringSliceVar(&boxQueries, "box", nil, "Text to draw a box around (supports 'Text[1]', 'Text[last]', 'Text near Anchor', 'top-right:Text')")
+	rootCmd.Flags().StringSliceVar(&boxQueries, "box", nil, "Text to draw a box around (supports 'Text|200x50', 'Text|w=200,h=50,pad=10', 'Text[1]', 'Text near Anchor')")
 	rootCmd.Flags().StringSliceVar(&arrowQueries, "arrow", nil, "Text to point an arrow at")
 	rootCmd.Flags().StringVar(&arrowFrom, "arrow-from", "top-left", "Direction arrow originates from ('top', 'bottom', 'left', 'right', 'top-left', 'top-right', 'bottom-left', 'bottom-right')")
 	rootCmd.Flags().StringSliceVar(&highlightList, "highlight", nil, "Text to highlight with semi-transparent color")
@@ -82,6 +88,10 @@ func init() {
 	rootCmd.Flags().StringSliceVar(&badgeList, "badge", nil, "Draw badge on text, format 'TEXT:LABEL' (e.g. 'Submit:Step 1')")
 	rootCmd.Flags().StringVar(&colorName, "color", "red", "Primary annotation color (red, green, blue, yellow, orange, magenta, cyan, or hex code #FF0000)")
 	rootCmd.Flags().Float64Var(&strokeWidth, "stroke", 4.0, "Stroke width for boxes and arrows")
+	rootCmd.Flags().Float64VarP(&boxWidth, "box-width", "W", 0, "Custom fixed width for box in pixels (e.g. --box-width 200)")
+	rootCmd.Flags().Float64VarP(&boxHeight, "box-height", "H", 0, "Custom fixed height for box in pixels (e.g. --box-height 60)")
+	rootCmd.Flags().Float64VarP(&boxPadding, "padding", "p", 6.0, "Padding around text for bounding box (default: 6.0)")
+	rootCmd.Flags().Float64VarP(&boxRadius, "radius", "r", 4.0, "Corner radius for rounded bounding box (default: 4.0)")
 	rootCmd.Flags().StringVarP(&outputPath, "output", "o", storage.GetDefaultDir(), "Destination output path or folder (default: configured in .env or picture/screnshoot)")
 	rootCmd.Flags().IntVarP(&delaySeconds, "delay", "d", 0, "Delay in seconds before capturing screenshot")
 	rootCmd.Flags().BoolVarP(&listWindows, "list", "l", false, "List all visible open windows and exit")
@@ -169,17 +179,27 @@ func runCapture(cmd *cobra.Command, args []string) error {
 			annotatedCount := 0
 			bounds := rawImg.Bounds()
 
+			baseBoxOpt := draw.BoxOptions{
+				Color:       colorName,
+				StrokeWidth: strokeWidth,
+				Padding:     boxPadding,
+				Radius:      boxRadius,
+				Width:       boxWidth,
+				Height:      boxHeight,
+			}
+
 			// 1. Process Boxes
 			for _, target := range boxQueries {
-				target = applyTargetOverrides(target)
-				matches, err := ocr.FindSpecificText(ocrRes, bounds, target, caseSensitive, markAll)
+				cleanTarget, boxOpt := draw.ParseBoxInlineOptions(target, baseBoxOpt)
+				cleanTarget = applyTargetOverrides(cleanTarget)
+				matches, err := ocr.FindSpecificText(ocrRes, bounds, cleanTarget, caseSensitive, markAll)
 				if err != nil || len(matches) == 0 {
-					fmt.Printf("⚠️ Box: Text '%s' not found in screenshot\n", target)
+					fmt.Printf("⚠️ Box: Text '%s' not found in screenshot\n", cleanTarget)
 					continue
 				}
 				for _, m := range matches {
-					fmt.Printf("📦 Box added around '%s' at %v\n", m.MatchedText, m.Bounds)
-					annotator.DrawBox(m.Bounds, colorName, strokeWidth, 4.0, 4.0)
+					fmt.Printf("📦 Box added around '%s' at %v (Size: %v)\n", m.MatchedText, m.Bounds, boxOpt)
+					annotator.DrawBoxWithOptions(m.Bounds, boxOpt)
 					annotatedCount++
 				}
 			}

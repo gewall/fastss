@@ -23,7 +23,7 @@ var annotateCmd = &cobra.Command{
 }
 
 func init() {
-	annotateCmd.Flags().StringSliceVar(&boxQueries, "box", nil, "Text to draw a box around")
+	annotateCmd.Flags().StringSliceVar(&boxQueries, "box", nil, "Text to draw a box around (supports 'Text|200x50', 'Text|w=200,h=50,pad=10')")
 	annotateCmd.Flags().StringSliceVar(&arrowQueries, "arrow", nil, "Text to point an arrow at")
 	annotateCmd.Flags().StringVar(&arrowFrom, "arrow-from", "top-left", "Direction arrow originates from ('top', 'bottom', 'left', 'right', 'top-left', etc.)")
 	annotateCmd.Flags().StringSliceVar(&highlightList, "highlight", nil, "Text to highlight")
@@ -31,6 +31,10 @@ func init() {
 	annotateCmd.Flags().StringSliceVar(&badgeList, "badge", nil, "Draw badge on text, format 'TEXT:LABEL'")
 	annotateCmd.Flags().StringVar(&colorName, "color", "red", "Annotation color (red, green, blue, yellow, orange, magenta, cyan, hex)")
 	annotateCmd.Flags().Float64Var(&strokeWidth, "stroke", 4.0, "Stroke width for boxes and arrows")
+	annotateCmd.Flags().Float64VarP(&boxWidth, "box-width", "W", 0, "Custom fixed width for box in pixels")
+	annotateCmd.Flags().Float64VarP(&boxHeight, "box-height", "H", 0, "Custom fixed height for box in pixels")
+	annotateCmd.Flags().Float64VarP(&boxPadding, "padding", "p", 6.0, "Padding around text for bounding box (default: 6.0)")
+	annotateCmd.Flags().Float64VarP(&boxRadius, "radius", "r", 4.0, "Corner radius for rounded bounding box (default: 4.0)")
 	annotateCmd.Flags().StringVarP(&outputPath, "output", "o", storage.GetDefaultDir(), "Destination output path or folder")
 	annotateCmd.Flags().BoolVar(&caseSensitive, "case-sensitive", false, "Case-sensitive text matching for OCR")
 	annotateCmd.Flags().BoolVar(&ocrDump, "ocr-dump", false, "Print all detected OCR text lines and words")
@@ -71,17 +75,27 @@ func runAnnotate(cmd *cobra.Command, args []string) error {
 	annotatedCount := 0
 	bounds := rawImg.Bounds()
 
+	baseBoxOpt := draw.BoxOptions{
+		Color:       colorName,
+		StrokeWidth: strokeWidth,
+		Padding:     boxPadding,
+		Radius:      boxRadius,
+		Width:       boxWidth,
+		Height:      boxHeight,
+	}
+
 	// 1. Process Boxes
 	for _, target := range boxQueries {
-		target = applyTargetOverrides(target)
-		matches, err := ocr.FindSpecificText(ocrRes, bounds, target, caseSensitive, markAll)
+		cleanTarget, boxOpt := draw.ParseBoxInlineOptions(target, baseBoxOpt)
+		cleanTarget = applyTargetOverrides(cleanTarget)
+		matches, err := ocr.FindSpecificText(ocrRes, bounds, cleanTarget, caseSensitive, markAll)
 		if err != nil || len(matches) == 0 {
-			fmt.Printf("⚠️ Box: Text '%s' not found in image\n", target)
+			fmt.Printf("⚠️ Box: Text '%s' not found in image\n", cleanTarget)
 			continue
 		}
 		for _, m := range matches {
-			fmt.Printf("📦 Box added around '%s' at %v\n", m.MatchedText, m.Bounds)
-			annotator.DrawBox(m.Bounds, colorName, strokeWidth, 4.0, 4.0)
+			fmt.Printf("📦 Box added around '%s' at %v (Size: %v)\n", m.MatchedText, m.Bounds, boxOpt)
+			annotator.DrawBoxWithOptions(m.Bounds, boxOpt)
 			annotatedCount++
 		}
 	}
