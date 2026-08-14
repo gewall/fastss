@@ -7,57 +7,99 @@
 ## ✨ Fitur Utama
 
 1. **Window & Screen Capture**:
-   - Tangkap layar penuh (*fullscreen*) atau jendela aplikasi tertentu (`--window "Chrome"` / `--window "active"`).
-   - Dukungan *countdown delay* (`--delay 3`) untuk memberi waktu berpindah jendela sebelum layar ditangkap.
-   - Perintah `fastss list` untuk melihat daftar semua jendela aplikasi yang sedang terbuka beserta PID dan ukurannya.
+   - Tangkap layar penuh (*fullscreen*) atau jendela aplikasi tertentu (`ss "Chrome"` / `ss -w "active"`).
+   - **Force Foreground**: Otomatis mengangkat aplikasi target ke posisi paling depan di atas terminal/CMD saat pengambilan screenshot.
+   - Dukungan *countdown delay* (`-d 3`) untuk memberi waktu berpindah jendela sebelum layar ditangkap.
+   - Perintah `ss list` untuk melihat daftar semua jendela aplikasi yang sedang terbuka beserta PID dan ukurannya.
 
 2. **Deteksi Teks Otomatis (OCR + Fuzzy Matching)**:
    - Menggunakan engine OCR bawaan Windows (`Windows.Media.Ocr`) sehingga tidak memerlukan instalasi Tesseract manual.
-   - Dilengkapi algoritma **Fuzzy Matching (Levenshtein Distance)** sehingga teks tetap terdeteksi meski terjadi sedikit *typo* / deviasi karakter dari pembacaan OCR.
+   - Dilengkapi algoritma **Fuzzy Matching (Levenshtein Distance)** sehingga teks tetap terdeteksi meski terjadi deviasi pembacaan OCR.
 
 3. **Anotasi Otomatis Lengkap**:
-   - **Kotak (`--box`)**: Menggambar garis batas (*bounding box*) merah di sekeliling teks target.
-   - **Panah (`--arrow`)**: Menggambar panah presisi yang menunjuk langsung ke teks target, dengan arah panah yang dapat diatur (`--arrow-from top-left`, `bottom`, dll).
+   - **Kotak (`--box`)**: Menggambar garis batas (*bounding box*) di sekeliling teks target.
+   - **Panah (`--arrow`)**: Menggambar panah presisi yang menunjuk langsung ke teks target (`--arrow-from top-left`, `bottom`, `right`, dll).
    - **Highlight (`--highlight`)**: Menyorot teks target dengan warna transparan seperti stabilo.
-   - **Blur / Sensor (`--blur`)**: Melakukan sensor pixelation pada teks sensitif (seperti password, token, nomor telepon).
-   - **Badge (`--badge`)**: Menambahkan label penomoran langkah (misal: `fastss --badge "Submit:Langkah 1"`).
+   - **Blur / Sensor (`--blur`)**: Melakukan sensor pixelation pada teks sensitif (seperti password, token, data rahasia).
+   - **Badge (`--badge`)**: Menambahkan label penomoran langkah (misal: `--badge "Submit:Langkah 1"`).
 
-4. **Penyimpanan Otomatis**:
-   - Gambar otomatis disimpan ke folder `picture/screnshoot/` dengan penamaan timestamp (misal: `screenshot_20260814_110500.png`).
-   - Mendukung format output kustom PNG / JPEG.
+4. **Shorthand Execution (`ss` & `/ss`)**:
+   - Eksekusi instan di terminal menggunakan perintah **`ss`**.
+   - Integrasi AI chat command menggunakan **`/ss`**.
 
-5. **Anotasi Gambar Eksisting (`fastss annotate`)**:
-   - Mampu menganotasi file gambar yang sudah ada tanpa harus mengambil screenshot baru.
+5. **Penyimpanan & Konfigurasi Fleksibel (`.env`)**:
+   - Mendukung kustomisasi folder penyimpanan melalui file konfigurasi `.env`.
+   - Default tersimpan ke `picture/screnshoot/`.
 
 ---
 
-## 🚀 Cara Menjalankan
+## ⚡ Shorthand Command (`ss` & `/ss`)
 
-### 1. Build Executable
-```bash
-go build -o fastss.exe .
+### 1. Terminal / PowerShell / CMD
+Anda dapat menggunakan perintah singkat **`ss`** dari terminal mana saja:
+
+```powershell
+# Tangkap Chrome dan beri panah merah ke teks "Review"
+ss "Chrome" --arrow "Review" --color red
+
+# Tangkap fullscreen dan buat kotak di teks "Login"
+ss --box "Login"
+```
+
+### 2. Antigravity Chat Slash Command
+Anda juga dapat menjalankan perintah langsung melalui kolom chat AI:
+
+```text
+/ss "Chrome" --arrow "Review" --color red
+/ss --box "Save Changes"
+/ss list
 ```
 
 ---
 
-## 📖 Contoh Penggunaan
+## ⚙️ Konfigurasi Environment (`.env`)
 
-### 1. Menangkap Jendela Tertentu & Menambahkan Panah Merah
-```bash
-# Menunjuk tombol "Login" pada jendela Chrome
-.\fastss.exe -w "Chrome" --arrow "Login"
+Anda dapat menentukan folder penyimpanan default untuk semua screenshot melalui file `.env`.
+
+1. Salin file template `.env.example` menjadi `.env`:
+   ```powershell
+   Copy-Item .env.example .env
+   ```
+
+2. Ubah variabel sesuai kebutuhan Anda di `.env`:
+   ```env
+   # Path folder penyimpanan screenshot (relatif atau absolut)
+   FASTSS_OUTPUT_DIR=picture/screnshoot
+
+   # Warna default anotasi
+   FASTSS_DEFAULT_COLOR=red
+
+   # Ketebalan garis (pixel)
+   FASTSS_STROKE_WIDTH=4.0
+   ```
+
+---
+
+## 📖 Contoh Penggunaan Lengkap
+
+### 1. Menangkap Jendela Spesifik & Menambahkan Panah
+```powershell
+# Langsung gunakan nama aplikasi sebagai argumen pertama:
+ss "Chrome" --arrow "Submit" --color red
+
+# Atau menggunakan flag -w:
+ss -w "Notepad" --arrow "File"
 ```
 
-### 2. Menangkap Layar & Membuat Kotak Merah di Teks Tertentu
-```bash
-# Menggambar kotak merah di sekitar teks "Download"
-.\fastss.exe --box "Download"
+### 2. Menangkap Layar & Membuat Kotak di Teks Tertentu
+```powershell
+ss --box "Download"
 ```
 
 ### 3. Kombinasi Anotasi (Kotak, Panah, Highlight, Blur)
-```bash
+```powershell
 # Tangkap jendela aktif setelah 3 detik, beri kotak pada 'Save', panah ke 'Save', highlight 'Online', dan blur token rahasia
-.\fastss.exe -w "active" -d 3 \
+ss -w "active" -d 3 \
   --box "Save Changes" \
   --arrow "Save Changes" \
   --highlight "Online" \
@@ -65,22 +107,22 @@ go build -o fastss.exe .
 ```
 
 ### 4. Mengubah Warna dan Ketebalan Garis Anotasi
-```bash
-# Menggunakan warna hijau dengan ketebalan garis 6px
-.\fastss.exe --box "Settings" --color green --stroke 6
+```powershell
+# Menggunakan warna hijau dengan ketebalan 6px
+ss --box "Settings" --color green --stroke 6
 ```
-Pilihan warna: `red`, `green`, `blue`, `yellow`, `orange`, `magenta`, `cyan`, atau kode HEX seperti `#FF5733`.
+*Pilihan warna: `red`, `green`, `blue`, `yellow`, `orange`, `magenta`, `cyan`, atau kode HEX seperti `#FF5733`.*
 
 ### 5. Melihat Daftar Jendela Aplikasi yang Terbuka
-```bash
-.\fastss.exe list
+```powershell
+ss list
 # atau
-.\fastss.exe -l
+ss -l
 ```
 
 ### 6. Menganotasi File Gambar yang Sudah Ada
-```bash
-.\fastss.exe annotate "gambar_lama.png" --box "Submit" --arrow "Submit" -o "hasil.png"
+```powershell
+ss annotate "gambar_lama.png" --box "Submit" --arrow "Submit" -o "hasil.png"
 ```
 
 ---
@@ -89,6 +131,8 @@ Pilihan warna: `red`, `green`, `blue`, `yellow`, `orange`, `magenta`, `cyan`, at
 
 ```text
 fastss/
+├── .agents/
+│   └── skills/ss/    # Antigravity chat slash command integration (/ss)
 ├── cmd/
 │   ├── root.go       # Konfigurasi flag dan runner utama CLI
 │   ├── list.go       # Subcommand list open windows
@@ -97,10 +141,10 @@ fastss/
 │   ├── capture/      # Screen & window capture (Win32 API & Screenshot)
 │   ├── ocr/          # Windows Media OCR & Fuzzy text matcher
 │   ├── draw/         # Rendering 2D (Box, Arrow, Highlight, Blur, Badge)
-│   └── storage/      # Penyimpanan file otomatis ke picture/screnshoot
+│   └── storage/      # Penyimpanan file & loader konfigurasi .env
 ├── picture/
 │   └── screnshoot/   # Direktori output default
-├── testimg/          # Script generator pengujian anotasi & OCR
+├── .env.example      # Template konfigurasi environment
 ├── go.mod
 ├── go.sum
 └── main.go           # Entry point aplikasi
