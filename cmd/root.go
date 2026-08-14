@@ -30,6 +30,8 @@ var (
 	listWindows   bool
 	caseSensitive bool
 	ocrDump       bool
+	markAll       bool
+	globalNth     int
 )
 
 var rootCmd = &cobra.Command{
@@ -40,17 +42,25 @@ It captures your screen or a specific application window, automatically runs OCR
 to locate text, and draws boxes, arrows, highlights, and blurs directly on targets.
 
 Examples:
-  # Capture full screen and draw red box on 'Login':
+  # Capture full screen and draw red box on first 'Login':
   fastss --box "Login"
 
-  # Capture a specific window and point an arrow to 'Submit':
+  # Target specific occurrence (1st, 2nd, last, all):
+  fastss --box "Submit[1]"
+  fastss --box "Submit[2]"
+  fastss --box "Submit[last]"
+  fastss --box "Submit[all]"
+
+  # Target text near / below a specific context anchor:
+  fastss --box "Edit near Profile"
+  fastss --arrow "Save below Settings"
+
+  # Target text in a specific area:
+  fastss --box "top-right:Save"
+  fastss --box "bottom:Submit"
+
+  # Capture a specific window:
   fastss -w "Chrome" --arrow "Submit" --color red
-
-  # Capture active window after 3 seconds delay, box 'Error' and blur 'Password':
-  fastss -w "active" -d 3 --box "Error" --blur "Secret123"
-
-  # List open windows:
-  fastss -l
 `,
 	RunE: runCapture,
 }
@@ -64,8 +74,8 @@ func Execute() {
 
 func init() {
 	rootCmd.Flags().StringVarP(&windowQuery, "window", "w", "fullscreen", "Window title to capture ('fullscreen', 'active', or partial title like 'Chrome')")
-	rootCmd.Flags().StringSliceVar(&boxQueries, "box", nil, "Text to draw a box around (can be specified multiple times)")
-	rootCmd.Flags().StringSliceVar(&arrowQueries, "arrow", nil, "Text to point an arrow at (can be specified multiple times)")
+	rootCmd.Flags().StringSliceVar(&boxQueries, "box", nil, "Text to draw a box around (supports 'Text[1]', 'Text[last]', 'Text near Anchor', 'top-right:Text')")
+	rootCmd.Flags().StringSliceVar(&arrowQueries, "arrow", nil, "Text to point an arrow at")
 	rootCmd.Flags().StringVar(&arrowFrom, "arrow-from", "top-left", "Direction arrow originates from ('top', 'bottom', 'left', 'right', 'top-left', 'top-right', 'bottom-left', 'bottom-right')")
 	rootCmd.Flags().StringSliceVar(&highlightList, "highlight", nil, "Text to highlight with semi-transparent color")
 	rootCmd.Flags().StringSliceVar(&blurList, "blur", nil, "Text to blur/censor")
@@ -77,6 +87,18 @@ func init() {
 	rootCmd.Flags().BoolVarP(&listWindows, "list", "l", false, "List all visible open windows and exit")
 	rootCmd.Flags().BoolVar(&caseSensitive, "case-sensitive", false, "Case-sensitive text matching for OCR")
 	rootCmd.Flags().BoolVar(&ocrDump, "ocr-dump", false, "Print all detected OCR text lines and words")
+	rootCmd.Flags().BoolVarP(&markAll, "all", "a", false, "Mark ALL matching occurrences of text (default is 1st match unless specified)")
+	rootCmd.Flags().IntVarP(&globalNth, "nth", "n", 0, "Select N-th occurrence (1 for 1st, 2 for 2nd, -1 for last)")
+}
+
+func applyTargetOverrides(target string) string {
+	if globalNth != 0 && !strings.ContainsAny(target, "[]:#") {
+		if globalNth == -1 {
+			return target + "[last]"
+		}
+		return fmt.Sprintf("%s[%d]", target, globalNth)
+	}
+	return target
 }
 
 func runCapture(cmd *cobra.Command, args []string) error {
@@ -145,10 +167,12 @@ func runCapture(cmd *cobra.Command, args []string) error {
 
 			annotator := draw.NewAnnotator(rawImg)
 			annotatedCount := 0
+			bounds := rawImg.Bounds()
 
 			// 1. Process Boxes
 			for _, target := range boxQueries {
-				matches, err := ocr.FindText(ocrRes, target, caseSensitive)
+				target = applyTargetOverrides(target)
+				matches, err := ocr.FindSpecificText(ocrRes, bounds, target, caseSensitive, markAll)
 				if err != nil || len(matches) == 0 {
 					fmt.Printf("⚠️ Box: Text '%s' not found in screenshot\n", target)
 					continue
@@ -162,7 +186,8 @@ func runCapture(cmd *cobra.Command, args []string) error {
 
 			// 2. Process Arrows
 			for _, target := range arrowQueries {
-				matches, err := ocr.FindText(ocrRes, target, caseSensitive)
+				target = applyTargetOverrides(target)
+				matches, err := ocr.FindSpecificText(ocrRes, bounds, target, caseSensitive, markAll)
 				if err != nil || len(matches) == 0 {
 					fmt.Printf("⚠️ Arrow: Text '%s' not found in screenshot\n", target)
 					continue
@@ -176,7 +201,8 @@ func runCapture(cmd *cobra.Command, args []string) error {
 
 			// 3. Process Highlights
 			for _, target := range highlightList {
-				matches, err := ocr.FindText(ocrRes, target, caseSensitive)
+				target = applyTargetOverrides(target)
+				matches, err := ocr.FindSpecificText(ocrRes, bounds, target, caseSensitive, markAll)
 				if err != nil || len(matches) == 0 {
 					fmt.Printf("⚠️ Highlight: Text '%s' not found in screenshot\n", target)
 					continue
@@ -190,7 +216,8 @@ func runCapture(cmd *cobra.Command, args []string) error {
 
 			// 4. Process Blurs
 			for _, target := range blurList {
-				matches, err := ocr.FindText(ocrRes, target, caseSensitive)
+				target = applyTargetOverrides(target)
+				matches, err := ocr.FindSpecificText(ocrRes, bounds, target, caseSensitive, markAll)
 				if err != nil || len(matches) == 0 {
 					fmt.Printf("⚠️ Blur: Text '%s' not found in screenshot\n", target)
 					continue
@@ -211,7 +238,8 @@ func runCapture(cmd *cobra.Command, args []string) error {
 					badgeText = parts[1]
 				}
 
-				matches, err := ocr.FindText(ocrRes, target, caseSensitive)
+				target = applyTargetOverrides(target)
+				matches, err := ocr.FindSpecificText(ocrRes, bounds, target, caseSensitive, markAll)
 				if err != nil || len(matches) == 0 {
 					fmt.Printf("⚠️ Badge: Text '%s' not found in screenshot\n", target)
 					continue

@@ -34,6 +34,8 @@ func init() {
 	annotateCmd.Flags().StringVarP(&outputPath, "output", "o", storage.GetDefaultDir(), "Destination output path or folder")
 	annotateCmd.Flags().BoolVar(&caseSensitive, "case-sensitive", false, "Case-sensitive text matching for OCR")
 	annotateCmd.Flags().BoolVar(&ocrDump, "ocr-dump", false, "Print all detected OCR text lines and words")
+	annotateCmd.Flags().BoolVarP(&markAll, "all", "a", false, "Mark ALL matching occurrences of text (default is 1st match unless specified)")
+	annotateCmd.Flags().IntVarP(&globalNth, "nth", "n", 0, "Select N-th occurrence (1 for 1st, 2 for 2nd, -1 for last)")
 
 	rootCmd.AddCommand(annotateCmd)
 }
@@ -67,10 +69,12 @@ func runAnnotate(cmd *cobra.Command, args []string) error {
 
 	annotator := draw.NewAnnotator(rawImg)
 	annotatedCount := 0
+	bounds := rawImg.Bounds()
 
 	// 1. Process Boxes
 	for _, target := range boxQueries {
-		matches, err := ocr.FindText(ocrRes, target, caseSensitive)
+		target = applyTargetOverrides(target)
+		matches, err := ocr.FindSpecificText(ocrRes, bounds, target, caseSensitive, markAll)
 		if err != nil || len(matches) == 0 {
 			fmt.Printf("⚠️ Box: Text '%s' not found in image\n", target)
 			continue
@@ -84,7 +88,8 @@ func runAnnotate(cmd *cobra.Command, args []string) error {
 
 	// 2. Process Arrows
 	for _, target := range arrowQueries {
-		matches, err := ocr.FindText(ocrRes, target, caseSensitive)
+		target = applyTargetOverrides(target)
+		matches, err := ocr.FindSpecificText(ocrRes, bounds, target, caseSensitive, markAll)
 		if err != nil || len(matches) == 0 {
 			fmt.Printf("⚠️ Arrow: Text '%s' not found in image\n", target)
 			continue
@@ -98,7 +103,8 @@ func runAnnotate(cmd *cobra.Command, args []string) error {
 
 	// 3. Process Highlights
 	for _, target := range highlightList {
-		matches, err := ocr.FindText(ocrRes, target, caseSensitive)
+		target = applyTargetOverrides(target)
+		matches, err := ocr.FindSpecificText(ocrRes, bounds, target, caseSensitive, markAll)
 		if err != nil || len(matches) == 0 {
 			fmt.Printf("⚠️ Highlight: Text '%s' not found in image\n", target)
 			continue
@@ -112,7 +118,8 @@ func runAnnotate(cmd *cobra.Command, args []string) error {
 
 	// 4. Process Blurs
 	for _, target := range blurList {
-		matches, err := ocr.FindText(ocrRes, target, caseSensitive)
+		target = applyTargetOverrides(target)
+		matches, err := ocr.FindSpecificText(ocrRes, bounds, target, caseSensitive, markAll)
 		if err != nil || len(matches) == 0 {
 			fmt.Printf("⚠️ Blur: Text '%s' not found in image\n", target)
 			continue
@@ -133,7 +140,8 @@ func runAnnotate(cmd *cobra.Command, args []string) error {
 			badgeText = parts[1]
 		}
 
-		matches, err := ocr.FindText(ocrRes, target, caseSensitive)
+		target = applyTargetOverrides(target)
+		matches, err := ocr.FindSpecificText(ocrRes, bounds, target, caseSensitive, markAll)
 		if err != nil || len(matches) == 0 {
 			fmt.Printf("⚠️ Badge: Text '%s' not found in image\n", target)
 			continue

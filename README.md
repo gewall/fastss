@@ -79,6 +79,50 @@ Anda dapat menentukan folder penyimpanan default untuk semua screenshot melalui 
 
 ---
 
+## 🎯 Seleksi Teks Spesifik (Targeting Akurat)
+
+Jika terdapat banyak teks yang sama di layar (misal tombol "Edit" atau "Delete" di setiap baris tabel), Anda bisa menargetkan teks yang tepat dengan berbagai cara:
+
+### 1. Menggunakan Indeks Urutan (`[1]`, `[2]`, `[last]`)
+```powershell
+# Menandai kemunculan pertama saja (default):
+ss --box "Edit[1]"
+
+# Menandai kemunculan ke-2:
+ss --box "Edit[2]"
+
+# Menandai kemunculan terakhir:
+ss --box "Edit[last]"
+
+# Menandai SEMUA kemunculan teks 'Edit':
+ss --box "Edit[all]"
+# atau menggunakan flag --all:
+ss --box "Edit" --all
+```
+
+### 2. Berdasarkan Konteks / Teks Terdekat (`near`, `below`, `above`, `right-of`)
+```powershell
+# Menandai tombol "Edit" yang berada di dekat tulisan "Billing":
+ss --box "Edit near Billing"
+
+# Menandai tombol "Save" yang posisinya di bawah "Settings":
+ss --arrow "Save below Settings"
+
+# Menandai tombol "Delete" yang berada di sebelah kanan "Account":
+ss --box "Delete right-of Account"
+```
+
+### 3. Berdasarkan Area Layar (`top`, `bottom`, `left`, `right`, `top-right`, dll)
+```powershell
+# Menandai tombol 'Save' yang berada di pojok kanan atas:
+ss --box "top-right:Save"
+
+# Menandai tombol 'Submit' di bagian bawah layar:
+ss --box "bottom:Submit"
+```
+
+---
+
 ## 📖 Contoh Penggunaan Lengkap
 
 ### 1. Menangkap Jendela Spesifik & Menambahkan Panah
