@@ -9,15 +9,31 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/joho/godotenv"
 )
 
-const DefaultDir = "picture/screnshoot"
+const FallbackDir = "picture/screnshoot"
+
+func init() {
+	_ = godotenv.Load()
+}
+
+// GetDefaultDir returns configured directory from FASTSS_OUTPUT_DIR or default fallback
+func GetDefaultDir() string {
+	_ = godotenv.Load()
+	dir := os.Getenv("FASTSS_OUTPUT_DIR")
+	if strings.TrimSpace(dir) != "" {
+		return strings.TrimSpace(dir)
+	}
+	return FallbackDir
+}
 
 // SaveImage saves an image to a destination file. If outPath is empty or a directory,
 // a timestamped PNG file will be generated in that directory.
 func SaveImage(img image.Image, outPath string) (string, error) {
 	if strings.TrimSpace(outPath) == "" {
-		outPath = DefaultDir
+		outPath = GetDefaultDir()
 	}
 
 	// Check if outPath has an image extension

@@ -31,7 +31,7 @@ func init() {
 	annotateCmd.Flags().StringSliceVar(&badgeList, "badge", nil, "Draw badge on text, format 'TEXT:LABEL'")
 	annotateCmd.Flags().StringVar(&colorName, "color", "red", "Annotation color (red, green, blue, yellow, orange, magenta, cyan, hex)")
 	annotateCmd.Flags().Float64Var(&strokeWidth, "stroke", 4.0, "Stroke width for boxes and arrows")
-	annotateCmd.Flags().StringVarP(&outputPath, "output", "o", storage.DefaultDir, "Destination output path or folder")
+	annotateCmd.Flags().StringVarP(&outputPath, "output", "o", storage.GetDefaultDir(), "Destination output path or folder")
 	annotateCmd.Flags().BoolVar(&caseSensitive, "case-sensitive", false, "Case-sensitive text matching for OCR")
 	annotateCmd.Flags().BoolVar(&ocrDump, "ocr-dump", false, "Print all detected OCR text lines and words")
 

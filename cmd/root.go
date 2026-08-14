@@ -72,7 +72,7 @@ func init() {
 	rootCmd.Flags().StringSliceVar(&badgeList, "badge", nil, "Draw badge on text, format 'TEXT:LABEL' (e.g. 'Submit:Step 1')")
 	rootCmd.Flags().StringVar(&colorName, "color", "red", "Primary annotation color (red, green, blue, yellow, orange, magenta, cyan, or hex code #FF0000)")
 	rootCmd.Flags().Float64Var(&strokeWidth, "stroke", 4.0, "Stroke width for boxes and arrows")
-	rootCmd.Flags().StringVarP(&outputPath, "output", "o", storage.DefaultDir, "Destination output path or folder (default: picture/screnshoot)")
+	rootCmd.Flags().StringVarP(&outputPath, "output", "o", storage.GetDefaultDir(), "Destination output path or folder (default: configured in .env or picture/screnshoot)")
 	rootCmd.Flags().IntVarP(&delaySeconds, "delay", "d", 0, "Delay in seconds before capturing screenshot")
 	rootCmd.Flags().BoolVarP(&listWindows, "list", "l", false, "List all visible open windows and exit")
 	rootCmd.Flags().BoolVar(&caseSensitive, "case-sensitive", false, "Case-sensitive text matching for OCR")
