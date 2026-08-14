@@ -1,0 +1,1 @@
+& "$PSScriptRoot\fastss.exe" @args

@@ -1,0 +1,32 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+fastss.exe
+ss.exe
+
+# Test and temporary assets
+test_assets/
+*.log
+
+# Output screenshots (ignore generated images but keep directory structure)
+picture/screnshoot/*.png
+picture/screnshoot/*.jpg
+picture/screnshoot/*.jpeg
+!picture/screnshoot/.gitkeep
+
+# IDEs and editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
