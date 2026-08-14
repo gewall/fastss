@@ -9,6 +9,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -63,6 +65,16 @@ type MatchResult struct {
 	Bounds      image.Rectangle
 	Center      image.Point
 	Score       float64
+}
+
+// TargetQuery holds parsed specific selection query
+type TargetQuery struct {
+	RawText    string
+	TargetText string
+	AnchorText string // For contextual: "near", "below", "above", "right-of", "left-of"
+	Relation   string // "near", "below", "above", "right-of", "left-of"
+	Index      int    // 0 = unspecified/all, 1 = first, 2 = second, -1 = last
+	Area       string // "top", "bottom", "left", "right", "top-left", "top-right", "bottom-left", "bottom-right", "center"
 }
 
 // RecognizeImage runs Windows Media OCR on an in-memory image
@@ -256,8 +268,254 @@ func similarity(s1, s2 string) float64 {
 	return 1.0 - (dist / maxLen)
 }
 
-// FindText searches the OCR results for text matching the query with exact & fuzzy support
-func FindText(res *OCRResult, query string, caseSensitive bool) ([]MatchResult, error) {
+var (
+	reIndexBracket = regexp.MustCompile(`^(.*)\[(\d+|first|last|all|\-\d+)\]$`)
+	reIndexColon   = regexp.MustCompile(`^(.*):(\d+|first|last|all)$`)
+	reIndexHash    = regexp.MustCompile(`^(.*)#(\d+)$`)
+	reRelation     = regexp.MustCompile(`(?i)^(.*?)\s+(near|below|under|above|right of|right-of|left of|left-of|after|before)\s+(.*)$`)
+	reAreaPrefix   = regexp.MustCompile(`(?i)^(top-left|top-right|bottom-left|bottom-right|top|bottom|left|right|center|header|footer):(.*)$`)
+)
+
+// ParseTargetQuery parses complex targeting syntax into a structured TargetQuery
+// Examples:
+// - "Submit[1]" -> Target: "Submit", Index: 1
+// - "Submit:last" -> Target: "Submit", Index: -1
+// - "top-right:Save" -> Area: "top-right", Target: "Save"
+// - "Edit near Profile" -> Target: "Edit", Anchor: "Profile", Relation: "near"
+// - "Delete below 'Account Settings'" -> Target: "Delete", Anchor: "Account Settings", Relation: "below"
+func ParseTargetQuery(raw string) TargetQuery {
+	tq := TargetQuery{
+		RawText:    raw,
+		TargetText: strings.TrimSpace(raw),
+	}
+
+	// 1. Check Area Prefix (e.g. "top-right:Save")
+	if m := reAreaPrefix.FindStringSubmatch(tq.TargetText); len(m) > 2 {
+		tq.Area = strings.ToLower(strings.TrimSpace(m[1]))
+		tq.TargetText = strings.TrimSpace(m[2])
+	}
+
+	// 2. Check Contextual Relation (e.g. "Edit near Profile" or "Save below 'Settings'")
+	if m := reRelation.FindStringSubmatch(tq.TargetText); len(m) > 3 {
+		tq.TargetText = strings.Trim(strings.TrimSpace(m[1]), `"'`)
+		rel := strings.ToLower(strings.TrimSpace(m[2]))
+		rel = strings.ReplaceAll(rel, " ", "-")
+		if rel == "under" {
+			rel = "below"
+		}
+		if rel == "before" {
+			rel = "left-of"
+		}
+		if rel == "after" {
+			rel = "right-of"
+		}
+		tq.Relation = rel
+		tq.AnchorText = strings.Trim(strings.TrimSpace(m[3]), `"'`)
+		return tq
+	}
+
+	// 3. Check Index Selectors: [1], [last], :1, #1
+	if m := reIndexBracket.FindStringSubmatch(tq.TargetText); len(m) > 2 {
+		tq.TargetText = strings.TrimSpace(m[1])
+		idxStr := strings.ToLower(strings.TrimSpace(m[2]))
+		tq.Index = parseIndexValue(idxStr)
+		return tq
+	}
+
+	if m := reIndexColon.FindStringSubmatch(tq.TargetText); len(m) > 2 {
+		tq.TargetText = strings.TrimSpace(m[1])
+		idxStr := strings.ToLower(strings.TrimSpace(m[2]))
+		tq.Index = parseIndexValue(idxStr)
+		return tq
+	}
+
+	if m := reIndexHash.FindStringSubmatch(tq.TargetText); len(m) > 2 {
+		tq.TargetText = strings.TrimSpace(m[1])
+		idxStr := strings.TrimSpace(m[2])
+		tq.Index = parseIndexValue(idxStr)
+		return tq
+	}
+
+	return tq
+}
+
+func parseIndexValue(val string) int {
+	if val == "first" {
+		return 1
+	}
+	if val == "last" || val == "-1" {
+		return -1
+	}
+	if val == "all" {
+		return -2
+	}
+	if num, err := strconv.Atoi(val); err == nil {
+		return num
+	}
+	return 0
+}
+
+// FindSpecificText performs targeted search with index, proximity, and spatial filtering
+func FindSpecificText(res *OCRResult, imgBounds image.Rectangle, rawQuery string, caseSensitive bool, defaultAll bool) ([]MatchResult, error) {
+	tq := ParseTargetQuery(rawQuery)
+	if tq.TargetText == "" {
+		return nil, fmt.Errorf("target query cannot be empty")
+	}
+
+	// 1. Find all raw matches for target
+	matches, err := FindRawTextMatches(res, tq.TargetText, caseSensitive)
+	if err != nil || len(matches) == 0 {
+		return nil, fmt.Errorf("text '%s' not found", tq.TargetText)
+	}
+
+	// 2. Filter by Area if specified (top, bottom, left, right, top-right, etc.)
+	if tq.Area != "" {
+		matches = filterByArea(matches, imgBounds, tq.Area)
+		if len(matches) == 0 {
+			return nil, fmt.Errorf("text '%s' not found in area '%s'", tq.TargetText, tq.Area)
+		}
+	}
+
+	// 3. Filter by Proximity / Contextual Relation (e.g. "Edit near Profile")
+	if tq.AnchorText != "" && tq.Relation != "" {
+		anchorMatches, err := FindRawTextMatches(res, tq.AnchorText, caseSensitive)
+		if err != nil || len(anchorMatches) == 0 {
+			return nil, fmt.Errorf("context anchor text '%s' not found for target '%s'", tq.AnchorText, tq.TargetText)
+		}
+
+		bestMatch, err := pickBySpatialRelation(matches, anchorMatches, tq.Relation)
+		if err != nil {
+			return nil, err
+		}
+		return []MatchResult{*bestMatch}, nil
+	}
+
+	// 4. Filter by Index ([1], [2], [last], [all], etc.)
+	if tq.Index == -2 {
+		return matches, nil // Explicitly requested ALL matches
+	}
+	if tq.Index != 0 {
+		if tq.Index > 0 {
+			if tq.Index > len(matches) {
+				return nil, fmt.Errorf("match index %d out of range (only %d matches found for '%s')", tq.Index, len(matches), tq.TargetText)
+			}
+			return []MatchResult{matches[tq.Index-1]}, nil
+		}
+		if tq.Index == -1 {
+			return []MatchResult{matches[len(matches)-1]}, nil
+		}
+	}
+
+	// 5. Default handling: If not defaultAll and multiple matches exist, return first
+	if !defaultAll && len(matches) > 1 {
+		return []MatchResult{matches[0]}, nil
+	}
+
+	return matches, nil
+}
+
+// filterByArea keeps matches located within the designated screen sector
+func filterByArea(matches []MatchResult, bounds image.Rectangle, area string) []MatchResult {
+	w := float64(bounds.Dx())
+	h := float64(bounds.Dy())
+	if w <= 0 || h <= 0 {
+		return matches
+	}
+
+	var filtered []MatchResult
+	for _, m := range matches {
+		cx := float64(m.Center.X)
+		cy := float64(m.Center.Y)
+
+		inArea := false
+		switch strings.ToLower(area) {
+		case "top", "header":
+			inArea = cy < (h * 0.4)
+		case "bottom", "footer":
+			inArea = cy > (h * 0.6)
+		case "left":
+			inArea = cx < (w * 0.4)
+		case "right":
+			inArea = cx > (w * 0.6)
+		case "top-left", "tl":
+			inArea = (cx < w*0.55) && (cy < h*0.55)
+		case "top-right", "tr":
+			inArea = (cx > w*0.45) && (cy < h*0.55)
+		case "bottom-left", "bl":
+			inArea = (cx < w*0.55) && (cy > h*0.45)
+		case "bottom-right", "br":
+			inArea = (cx > w*0.45) && (cy > h*0.45)
+		case "center", "middle":
+			inArea = (cx > w*0.25 && cx < w*0.75) && (cy > h*0.25 && cy < h*0.75)
+		default:
+			inArea = true
+		}
+
+		if inArea {
+			filtered = append(filtered, m)
+		}
+	}
+	return filtered
+}
+
+// pickBySpatialRelation finds the target match that best satisfies the relation with an anchor match
+func pickBySpatialRelation(targets []MatchResult, anchors []MatchResult, relation string) (*MatchResult, error) {
+	var bestTarget *MatchResult
+	bestScore := math.MaxFloat64
+
+	for _, t := range targets {
+		for _, a := range anchors {
+			dx := float64(t.Center.X - a.Center.X)
+			dy := float64(t.Center.Y - a.Center.Y)
+			dist := math.Sqrt(dx*dx + dy*dy)
+
+			valid := false
+			switch relation {
+			case "near":
+				valid = true
+			case "below":
+				// Target must be vertically lower than anchor
+				if dy > 0 && math.Abs(dx) < 400 {
+					valid = true
+					dist = dy*1.5 + math.Abs(dx)
+				}
+			case "above":
+				// Target must be vertically higher than anchor
+				if dy < 0 && math.Abs(dx) < 400 {
+					valid = true
+					dist = math.Abs(dy)*1.5 + math.Abs(dx)
+				}
+			case "right-of":
+				// Target must be to the right of anchor
+				if dx > 0 && math.Abs(dy) < 100 {
+					valid = true
+					dist = dx + math.Abs(dy)*2
+				}
+			case "left-of":
+				// Target must be to the left of anchor
+				if dx < 0 && math.Abs(dy) < 100 {
+					valid = true
+					dist = math.Abs(dx) + math.Abs(dy)*2
+				}
+			}
+
+			if valid && dist < bestScore {
+				bestScore = dist
+				matchCopy := t
+				bestTarget = &matchCopy
+			}
+		}
+	}
+
+	if bestTarget == nil {
+		return nil, fmt.Errorf("no target matching relation '%s' with context", relation)
+	}
+
+	return bestTarget, nil
+}
+
+// FindRawTextMatches searches the OCR results for text matching the query with exact & fuzzy support
+func FindRawTextMatches(res *OCRResult, query string, caseSensitive bool) ([]MatchResult, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return nil, fmt.Errorf("query string cannot be empty")
@@ -268,10 +526,8 @@ func FindText(res *OCRResult, query string, caseSensitive bool) ([]MatchResult, 
 
 	// Step 1: Check exact / substring matching on lines and word spans
 	for _, line := range res.Lines {
-		subMatch := findWordSequenceInLine(line, query, caseSensitive, 0.99)
-		if subMatch != nil {
-			matches = append(matches, *subMatch)
-		}
+		subMatches := findAllWordSequencesInLine(line, query, caseSensitive, 0.95)
+		matches = append(matches, subMatches...)
 	}
 
 	if len(matches) > 0 {
@@ -303,51 +559,41 @@ func FindText(res *OCRResult, query string, caseSensitive bool) ([]MatchResult, 
 		return matches, nil
 	}
 
-	// Step 3: Fuzzy sequence matching (threshold 0.68)
-	var bestFuzzy *MatchResult
-	bestScore := 0.0
-
+	// Step 3: Fuzzy sequence matching (threshold 0.65)
 	for _, line := range res.Lines {
-		subMatch := findWordSequenceInLine(line, query, false, 0.65)
-		if subMatch != nil {
-			if subMatch.Score > bestScore {
-				bestScore = subMatch.Score
-				bestFuzzy = subMatch
-			}
-		}
+		subMatches := findAllWordSequencesInLine(line, query, false, 0.65)
+		matches = append(matches, subMatches...)
 	}
 
-	if bestFuzzy != nil {
-		matches = append(matches, *bestFuzzy)
+	if len(matches) > 0 {
 		return matches, nil
 	}
 
-	// Step 4: Fuzzy word check
+	// Step 4: Fuzzy individual word check
 	for _, line := range res.Lines {
 		for _, w := range line.Words {
 			score := similarity(w.Text, query)
-			if score >= 0.65 && score > bestScore {
-				bestScore = score
-				bestFuzzy = &MatchResult{
+			if score >= 0.65 {
+				matches = append(matches, MatchResult{
 					MatchedText: w.Text,
 					Bounds:      w.Bounds.Rect(),
 					Center:      w.Bounds.Center(),
 					Score:       score,
-				}
+				})
 			}
 		}
 	}
 
-	if bestFuzzy != nil {
-		matches = append(matches, *bestFuzzy)
-		return matches, nil
-	}
-
-	return nil, nil
+	return matches, nil
 }
 
-// findWordSequenceInLine tries to find a contiguous sequence of words within a line matching query
-func findWordSequenceInLine(line LineResult, query string, caseSensitive bool, minScore float64) *MatchResult {
+// FindText is backward compatible caller for simple query search
+func FindText(res *OCRResult, query string, caseSensitive bool) ([]MatchResult, error) {
+	return FindSpecificText(res, image.Rect(0, 0, 1920, 1080), query, caseSensitive, true)
+}
+
+// findAllWordSequencesInLine finds all sequences of words within a line matching query
+func findAllWordSequencesInLine(line LineResult, query string, caseSensitive bool, minScore float64) []MatchResult {
 	words := line.Words
 	if len(words) == 0 {
 		return nil
@@ -363,17 +609,16 @@ func findWordSequenceInLine(line LineResult, query string, caseSensitive bool, m
 		qWordsStr = strings.ToLower(qWordsStr)
 	}
 
-	var bestMatch *MatchResult
-	bestScore := minScore
+	var results []MatchResult
 
-	// Check spans of length from len(qWords) - 1 to len(qWords) + 1
-	minSpan := int(math.Max(1, float64(len(qWords)-1)))
-	maxSpan := len(qWords) + 1
+	spanLen := len(qWords)
+	minSpan := int(math.Max(1, float64(spanLen-1)))
+	maxSpan := spanLen + 1
 
-	for spanLen := minSpan; spanLen <= maxSpan; spanLen++ {
-		for i := 0; i <= len(words)-spanLen; i++ {
+	for sLen := minSpan; sLen <= maxSpan; sLen++ {
+		for i := 0; i <= len(words)-sLen; i++ {
 			var combined []string
-			for j := 0; j < spanLen; j++ {
+			for j := 0; j < sLen; j++ {
 				combined = append(combined, words[i+j].Text)
 			}
 			candidate := strings.Join(combined, " ")
@@ -387,15 +632,13 @@ func findWordSequenceInLine(line LineResult, query string, caseSensitive bool, m
 				score = 1.0
 			}
 
-			if score >= bestScore {
-				bestScore = score
-
+			if score >= minScore {
 				minX := words[i].Bounds.X
 				minY := words[i].Bounds.Y
 				maxX := words[i].Bounds.X + words[i].Bounds.Width
 				maxY := words[i].Bounds.Y + words[i].Bounds.Height
 
-				for j := 1; j < spanLen; j++ {
+				for j := 1; j < sLen; j++ {
 					w := words[i+j]
 					if w.Bounds.X < minX {
 						minX = w.Bounds.X
@@ -418,15 +661,15 @@ func findWordSequenceInLine(line LineResult, query string, caseSensitive bool, m
 					Height: maxY - minY,
 				}
 
-				bestMatch = &MatchResult{
+				results = append(results, MatchResult{
 					MatchedText: candidate,
 					Bounds:      b.Rect(),
 					Center:      b.Center(),
 					Score:       score,
-				}
+				})
 			}
 		}
 	}
 
-	return bestMatch
+	return results
 }
