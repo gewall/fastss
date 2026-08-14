@@ -123,6 +123,34 @@ ss --box "bottom:Submit"
 
 ---
 
+## 📐 Mengatur Ukuran & Padding Box (Custom Size)
+
+Anda dapat mengatur ukuran kotak (*width*, *height*), jarak kelonggaran (*padding*), dan lengkungan sudut (*corner radius*) secara fleksibel:
+
+### 1. Menggunakan Flag CLI
+```powershell
+# Mengatur ukuran fixed Width=200px dan Height=60px:
+ss --box "Login" --box-width 200 --box-height 60
+
+# Mengatur padding lebih lega (misal: 15px) dan sudut membulat (radius: 10px):
+ss --box "Submit" --padding 15 --radius 10
+```
+
+### 2. Menggunakan Syntax Inline per Target (Kustomisasi Tiap Box)
+Anda bisa menentukan ukuran spesifik untuk masing-masing box secara langsung di dalam tanda kutip:
+```powershell
+# Format cepat "Text|WidthxHeight":
+ss --box "Submit|200x50"
+
+# Format parameter lengkap "Text|w=...;h=...;pad=...;radius=...":
+ss --box "Save|w=180;h=45;pad=10;radius=8"
+
+# Mengatur padding & radius saja:
+ss --box "Delete|pad=16;radius=12"
+```
+
+---
+
 ## 📖 Contoh Penggunaan Lengkap
 
 ### 1. Menangkap Jendela Spesifik & Menambahkan Panah
