@@ -134,7 +134,14 @@ func ForceForegroundWindow(hwnd uintptr) {
 		defer procAttachThreadInput.Call(uintptr(targetThreadId), curThreadId, 0)
 	}
 
-	procShowWindow.Call(hwnd, SW_RESTORE)
+	// Only restore if the window is currently minimized, otherwise preserve maximized/normal state
+	iconic, _, _ := procIsIconic.Call(hwnd)
+	if iconic != 0 {
+		procShowWindow.Call(hwnd, SW_RESTORE)
+	} else {
+		procShowWindow.Call(hwnd, SW_SHOW)
+	}
+
 	procBringWindowToTop.Call(hwnd)
 	procSetForegroundWindow.Call(hwnd)
 	if procSwitchToThisWindow.Find() == nil {
@@ -335,6 +342,12 @@ func CaptureWindow(w *WindowInfo, bringToFront bool) (image.Image, error) {
 		}
 	}
 
-	// Capture using screen coordinates of window bounding box
-	return screenshot.CaptureRect(w.Bounds)
+	// Clip bounds against virtual screen to avoid negative margin issues on maximized windows
+	virtScreen := GetVirtualScreenBounds()
+	targetRect := w.Bounds.Intersect(virtScreen)
+	if targetRect.Empty() || targetRect.Dx() <= 0 || targetRect.Dy() <= 0 {
+		targetRect = w.Bounds
+	}
+
+	return screenshot.CaptureRect(targetRect)
 }
