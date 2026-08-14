@@ -4,6 +4,29 @@
 
 ---
 
+## ⚡ Instalasi Global (Agar `ss` Bisa Digunakan di Seluruh Folder)
+
+Perintah `go build` biasa **tidak** otomatis mendaftarkan aplikasi ke PATH Windows. Agar Anda bisa mengetik **`ss`** dari folder mana saja di CMD atau PowerShell, gunakan salah satu cara berikut:
+
+### Opsi A: Menggunakan Script Instalasi Otomatis (Direkomendasikan)
+Jalankan file installer yang sudah disediakan di folder ini:
+```powershell
+.\install.bat
+```
+*Script ini otomatis meng-compile kode dan menaruh biner `ss.exe` ke folder global PATH (`%USERPROFILE%\go\bin`), sehingga langsung dapat digunakan dari seluruh direktori.*
+
+---
+
+### Opsi B: Manual via PowerShell (1 Baris)
+Jika ingin mendaftarkan folder proyek saat ini secara permanen ke User PATH Windows:
+```powershell
+# Jalankan perintah ini di PowerShell (Cukup sekali):
+[Environment]::SetEnvironmentVariable("Path", [Environment]::GetEnvironmentVariable("Path", "User") + ";$PWD", "User")
+```
+*(Setelah menjalankan perintah di atas, buka jendela CMD/PowerShell baru agar PATH ter-refresh).*
+
+---
+
 ## ✨ Fitur Utama
 
 1. **Window & Screen Capture**:
@@ -30,30 +53,6 @@
 5. **Penyimpanan & Konfigurasi Fleksibel (`.env`)**:
    - Mendukung kustomisasi folder penyimpanan melalui file konfigurasi `.env`.
    - Default tersimpan ke `picture/screnshoot/`.
-
----
-
-## ⚡ Shorthand Command (`ss` & `/ss`)
-
-### 1. Terminal / PowerShell / CMD
-Anda dapat menggunakan perintah singkat **`ss`** dari terminal mana saja:
-
-```powershell
-# Tangkap Chrome dan beri panah merah ke teks "Review"
-ss "Chrome" --arrow "Review" --color red
-
-# Tangkap fullscreen dan buat kotak di teks "Login"
-ss --box "Login"
-```
-
-### 2. Antigravity Chat Slash Command
-Anda juga dapat menjalankan perintah langsung melalui kolom chat AI:
-
-```text
-/ss "Chrome" --arrow "Review" --color red
-/ss --box "Save Changes"
-/ss list
-```
 
 ---
 
@@ -145,6 +144,7 @@ fastss/
 ├── picture/
 │   └── screnshoot/   # Direktori output default
 ├── .env.example      # Template konfigurasi environment
+├── install.bat       # Script installer otomatis ke global PATH
 ├── go.mod
 ├── go.sum
 └── main.go           # Entry point aplikasi
